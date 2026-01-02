@@ -64,7 +64,7 @@ df = st.session_state.data
 # -----------------------
 # Header
 # -----------------------
-st.title("🎉 Mood Tracker 2026")
+st.title("Luna Tracker")
 st.caption("Giggly :) , colorful mood tracker with notes & anxiety level")
 
 # -----------------------
