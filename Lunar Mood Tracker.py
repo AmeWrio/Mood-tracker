@@ -2,126 +2,135 @@ import streamlit as st
 import pandas as pd
 import datetime as dt
 import matplotlib.pyplot as plt
+import os
+import calendar
 
 # -----------------------
-# Basic app settings
+# App config
 # -----------------------
 st.set_page_config(
     page_title="Mood Tracker 2026",
     layout="wide"
 )
 
-# Mood grades mapped to numbers
-MOOD_SCALE = {
-    "F": 0,
-    "D": 1,
-    "C": 2,
-    "B": 3,
-    "A": 4,
-    "A+": 5
-}
+DATA_FILE = "mood_2026.csv"
 
-# Colors from bad (red) to good (green)
-MOOD_COLORS = {
-    0: "#8b0000",
-    1: "#ff4500",
-    2: "#ffa500",
-    3: "#9acd32",
-    4: "#32cd32",
-    5: "#006400"
-}
+MOODS = [
+    ("F", "😞", 0, "#8b0000"),
+    ("D", "😕", 1, "#ff4500"),
+    ("C", "😐", 2, "#ffa500"),
+    ("B", "🙂", 3, "#9acd32"),
+    ("A", "😄", 4, "#32cd32"),
+    ("A+", "🤩", 5, "#006400"),
+]
+
+MOOD_MAP = {m[0]: m[2] for m in MOODS}
+COLOR_MAP = {m[2]: m[3] for m in MOODS}
 
 START_DATE = dt.date(2026, 1, 1)
 END_DATE = dt.date(2026, 12, 31)
 
 # -----------------------
-# Create yearly data
+# Data persistence
 # -----------------------
-if "data" not in st.session_state:
+def load_data():
+    if os.path.exists(DATA_FILE):
+        return pd.read_csv(DATA_FILE, parse_dates=["date"])
     dates = pd.date_range(START_DATE, END_DATE)
-    st.session_state.data = pd.DataFrame({
-        "date": dates,
-        "mood": [None] * len(dates)
-    })
+    df = pd.DataFrame({"date": dates, "mood": [None] * len(dates)})
+    df.to_csv(DATA_FILE, index=False)
+    return df
+
+def save_data(df):
+    df.to_csv(DATA_FILE, index=False)
+
+if "data" not in st.session_state:
+    st.session_state.data = load_data()
 
 df = st.session_state.data
 
 # -----------------------
 # Header
 # -----------------------
-st.title("Mood Tracker – 2026")
+st.title("Mood Tracker 2026")
+st.caption("Daylio-style daily mood logging")
 
 # -----------------------
-# Daily input
+# Date selection
 # -----------------------
-col1, col2 = st.columns(2)
-
-with col1:
-    selected_date = st.date_input(
-        "Select date",
-        value=START_DATE,
-        min_value=START_DATE,
-        max_value=END_DATE
-    )
-
-with col2:
-    selected_mood = st.selectbox(
-        "Mood grade",
-        list(MOOD_SCALE.keys())
-    )
-
-if st.button("Save"):
-    df.loc[df["date"] == pd.Timestamp(selected_date), "mood"] = MOOD_SCALE[selected_mood]
-    st.success("Saved")
+selected_date = st.date_input(
+    "Date",
+    value=dt.date.today() if dt.date.today().year == 2026 else START_DATE,
+    min_value=START_DATE,
+    max_value=END_DATE
+)
 
 # -----------------------
-# Calendar-style view
+# Mood buttons (Daylio style)
 # -----------------------
-st.subheader("Year overview")
+st.subheader("How was your day?")
 
-df_plot = df.copy()
-df_plot["week"] = df_plot["date"].dt.isocalendar().week
-df_plot["weekday"] = df_plot["date"].dt.weekday
+cols = st.columns(len(MOODS))
+for col, (label, emoji, value, color) in zip(cols, MOODS):
+    with col:
+        if st.button(f"{emoji}\n{label}", use_container_width=True):
+            df.loc[df["date"] == pd.Timestamp(selected_date), "mood"] = value
+            save_data(df)
+            st.success("Saved")
 
-fig, ax = plt.subplots(figsize=(18, 4))
+# -----------------------
+# Monthly calendar view
+# -----------------------
+st.divider()
+st.subheader("Monthly overview")
 
-for _, row in df_plot.dropna().iterrows():
+month = st.selectbox(
+    "Month",
+    range(1, 13),
+    format_func=lambda m: calendar.month_name[m]
+)
+
+year_df = df[df["date"].dt.month == month].copy()
+year_df["day"] = year_df["date"].dt.day
+
+fig, ax = plt.subplots(figsize=(10, 3))
+ax.set_title(calendar.month_name[month])
+ax.set_xlim(0.5, 31.5)
+ax.set_ylim(0, 1)
+ax.axis("off")
+
+for _, row in year_df.dropna().iterrows():
     ax.scatter(
-        row["week"],
-        row["weekday"],
-        s=120,
-        color=MOOD_COLORS[int(row["mood"])]
+        row["day"],
+        0.5,
+        s=400,
+        color=COLOR_MAP[int(row["mood"])]
     )
-
-ax.set_yticks(range(7))
-ax.set_yticklabels(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])
-ax.set_xlabel("Week of year")
-ax.set_title("Mood calendar – 2026")
-ax.invert_yaxis()
 
 st.pyplot(fig)
 
 # -----------------------
-# Year summary
+# Year summary (Daylio-style stats)
 # -----------------------
-st.subheader("Year summary")
+st.divider()
+st.subheader("Year stats")
 
-valid_days = df.dropna()
+valid = df.dropna()
 
-if not valid_days.empty:
-    average = valid_days["mood"].mean()
-    good_days = (valid_days["mood"] >= 4).sum()
-    bad_days = (valid_days["mood"] <= 1).sum()
+if not valid.empty:
+    avg = valid["mood"].mean()
+    st.metric("Average mood", f"{avg:.2f} / 5")
 
-    st.write(f"Average mood: {average:.2f} / 5")
-    st.write(f"Good days (A, A+): {good_days}")
-    st.write(f"Bad days (D, F): {bad_days}")
-
-    if average >= 4:
-        st.success("Overall: Very good year")
-    elif average >= 2.5:
-        st.info("Overall: Average year")
-    else:
-        st.warning("Overall: Tough year")
+    counts = valid["mood"].value_counts().sort_index()
+    fig2, ax2 = plt.subplots()
+    ax2.bar(
+        counts.index.astype(str),
+        counts.values,
+        color=[COLOR_MAP[i] for i in counts.index]
+    )
+    ax2.set_xlabel("Mood")
+    ax2.set_ylabel("Days")
+    ax2.set_title("Mood distribution")
+    st.pyplot(fig2)
 else:
     st.info("No data yet")
